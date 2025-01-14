@@ -41,7 +41,7 @@ services:
     image: chrislusf/seaweedfs:local
     ports:
       - 8111:8111
-    command: 'iam -filer="filer:8888" -master="master:9333"'
+    command: '-v=3 iam -filer="filer:8888" -master="master:9333"'
     depends_on:
       - master
       - volume

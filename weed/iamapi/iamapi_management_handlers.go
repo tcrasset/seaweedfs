@@ -323,7 +323,7 @@ func GetActions(policy *PolicyDocument) (actions []string) {
 			res := strings.Split(resource, ":")
 			glog.V(3).Infof("parsed resource: %v", res)
 			if len(res) != 6 || res[0] != "arn" || res[1] != "aws" || res[2] != "s3" {
-				glog.Infof("not match resource: %s", res)
+				glog.Infof("not a valid resource: %s", res)
 				continue
 			}
 			for _, action := range statement.Action {
@@ -332,24 +332,23 @@ func GetActions(policy *PolicyDocument) (actions []string) {
 				act := strings.Split(action, ":")
 				glog.V(3).Infof("parsed action: %v", act)
 				if len(act) != 2 || act[0] != "s3" {
-					glog.Infof("not match action: %s", act)
+					glog.Infof("not a valid action: %s", act)
 					continue
 				}
 				statementAction := MapToStatementAction(act[1])
 				glog.V(3).Infof("parsed statementAction: %s", statementAction)
-				if res[5] == "*" {
+				path := res[5]
+				if path == "*" {
 					actions = append(actions, statementAction)
 					continue
 				}
 				// Parse my-bucket/shared/*
-				path := strings.Split(res[5], "/")
-				glog.V(3).Infof("parsed path: %v", path)
-				glog.V(3).Infof("len(path): %d", len(path))
-				if len(path) != 2 || path[1] != "*" {
-					glog.Infof("not match bucket: %s", path)
-					continue
-				}
-				actions = append(actions, fmt.Sprintf("%s:%s", statementAction, path[0]))
+				// path := strings.Split(res[5], "/")
+				// if len(path) != 2 || path[1] != "*" {
+				// 	glog.Infof("not match bucket: %s", path)
+				// 	continue
+				// }
+				actions = append(actions, fmt.Sprintf("%s:%s", statementAction, path))
 			}
 		}
 	}

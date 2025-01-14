@@ -88,16 +88,8 @@ def create_read_only_policy_for_user(iam_client, user, bucket_name):
                 "Action": [
                     "s3:Get*",
                     "s3:List*",
-                    "s3:Put*",
-                    "s3:Delete*",
-                    "s3:AbortMultipartUpload",
-                    "s3:ListMultipartUploadParts",
-                    "s3:ListBucketMultipartUploads",
-                    "s3:PutObjectAcl",
-                    "s3:GetObjectAcl"
                 ],
                 "Resource": [
-                    # f"arn:aws:s3:::{get_user_dir(bucket_name, user)}",
                     f"arn:aws:s3:::{get_user_dir(bucket_name, user)}/*",
                 ],
             }

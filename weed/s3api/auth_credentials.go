@@ -137,7 +137,12 @@ func NewIdentityAccessManagement(option *S3ApiServerOption) *IdentityAccessManag
 func (iam *IdentityAccessManagement) loadS3ApiConfigurationFromFiler(option *S3ApiServerOption) (err error) {
 	var content []byte
 	err = pb.WithFilerClient(false, 0, option.Filer, option.GrpcDialOption, func(client filer_pb.SeaweedFilerClient) error {
+<<<<<<< HEAD
 		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+"/"+filer.IamIdentityFile, option.Filer)
+||||||| parent of e50bd32a6 (--wip-- [skip ci])
+=======
+		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+filer.IamIdentityFile, option.Filer)
+>>>>>>> e50bd32a6 (--wip-- [skip ci])
 		content, err = filer.ReadInsideFiler(client, filer.IamConfigDirectory, filer.IamIdentityFile)
 		glog.V(3).Infof("config content: %s", string(content))
 		return err
@@ -400,8 +405,18 @@ func (iam *IdentityAccessManagement) authRequest(r *http.Request, action Action)
 	}
 
 	glog.V(3).Infof("user name: %v actions: %v, action: %v", identity.Name, identity.Actions, action)
-
+	glog.V(3).Infof("request: %v", r)
 	bucket, object := s3_constants.GetBucketAndObject(r)
+	prefix := s3_constants.GetPrefix(r)
+
+	glog.V(3).Infof("bucket: %v, object: %v, prefix: %v", bucket, object, prefix)
+
+	// If object is empty, and the prefix is not empty, then the object is the prefix
+	if object == "/" && prefix != "" {
+		object = prefix
+	}
+
+	glog.V(3).Infof("bucket: %v, object: %v, prefix: %v", bucket, object, prefix)
 
 	if !identity.canDo(action, bucket, object) {
 		return identity, s3err.ErrAccessDenied
@@ -468,6 +483,10 @@ func (identity *Identity) canDo(action Action, bucket string, objectKey string) 
 		return true
 	}
 	for _, a := range identity.Actions {
+		// Case where the Resource provided is
+		// 	"Resource": [
+		//		"arn:aws:s3:::*"
+		//	]
 		if a == action {
 			return true
 		}
