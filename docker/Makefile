@@ -42,8 +42,14 @@ build_rocksdb:
 s3tests_build:
 	docker build --no-cache -t chrislusf/ceph-s3-tests:local -f Dockerfile.s3tests .
 
-dev: build
-	docker compose -f compose/local-dev-compose.yml -p seaweedfs up
+dev: # build
+	docker compose -f compose/local-dev-compose.yml -p seaweedfs up --detach
+
+dev-down:
+	docker compose -f compose/local-dev-compose.yml -p seaweedfs down
+
+logs:
+	docker compose -f compose/local-dev-compose.yml -p seaweedfs logs --follow
 
 dev_race: binary_race
 	docker compose -f compose/local-dev-compose.yml -p seaweedfs up
