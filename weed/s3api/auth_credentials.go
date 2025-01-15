@@ -137,12 +137,7 @@ func NewIdentityAccessManagement(option *S3ApiServerOption) *IdentityAccessManag
 func (iam *IdentityAccessManagement) loadS3ApiConfigurationFromFiler(option *S3ApiServerOption) (err error) {
 	var content []byte
 	err = pb.WithFilerClient(false, 0, option.Filer, option.GrpcDialOption, func(client filer_pb.SeaweedFilerClient) error {
-<<<<<<< HEAD
 		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+"/"+filer.IamIdentityFile, option.Filer)
-||||||| parent of e50bd32a6 (--wip-- [skip ci])
-=======
-		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+filer.IamIdentityFile, option.Filer)
->>>>>>> e50bd32a6 (--wip-- [skip ci])
 		content, err = filer.ReadInsideFiler(client, filer.IamConfigDirectory, filer.IamIdentityFile)
 		glog.V(3).Infof("config content: %s", string(content))
 		return err
