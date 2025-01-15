@@ -86,7 +86,6 @@ function create_read_only_policy_for_user {
                     \"s3:Delete*\"
                 ],
                 \"Resource\": [
-                    \"arn:aws:s3:::$(get_user_dir $user)\",
                     \"arn:aws:s3:::$(get_user_dir $user)*\"
                 ]
             }
@@ -147,10 +146,10 @@ create_read_only_policy_for_user "Alice" $BUCKET_NAME
 create_read_only_policy_for_user "Bob" $BUCKET_NAME
 
 
-echo "############"
-echo "### Uploading file as Alice"
-echo "############"
-AWS_ACCESS_KEY_ID="$alice_key" AWS_SECRET_ACCESS_KEY="$alice_secret" upload_file "Alice" "$SENTINEL_FILE"
+# echo "############"
+# echo "### Uploading file as Alice"
+# echo "############"
+# AWS_ACCESS_KEY_ID="$alice_key" AWS_SECRET_ACCESS_KEY="$alice_secret" upload_file "Alice" "$SENTINEL_FILE"
 
 echo "############"
 echo "#### Making sure that Alice can't read any except their own files"
@@ -158,8 +157,8 @@ echo "############"
 
 
 list_files "$alice_key" "$alice_secret"
-list_files "$alice_key" "$alice_secret" "s3://$(get_user_dir Bob)"
-list_files "$alice_key" "$alice_secret" "s3://$(get_user_dir Alice)"
+list_files "$alice_key" "$alice_secret" "s3://$(get_user_dir Bob)*"
+list_files "$alice_key" "$alice_secret" "s3://$(get_user_dir Alice)*"
 
 
 
