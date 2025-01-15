@@ -137,7 +137,7 @@ func NewIdentityAccessManagement(option *S3ApiServerOption) *IdentityAccessManag
 func (iam *IdentityAccessManagement) loadS3ApiConfigurationFromFiler(option *S3ApiServerOption) (err error) {
 	var content []byte
 	err = pb.WithFilerClient(false, 0, option.Filer, option.GrpcDialOption, func(client filer_pb.SeaweedFilerClient) error {
-		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+filer.IamIdentityFile, option.Filer)
+		glog.V(3).Infof("loading config %s from filer %s", filer.IamConfigDirectory+"/"+filer.IamIdentityFile, option.Filer)
 		content, err = filer.ReadInsideFiler(client, filer.IamConfigDirectory, filer.IamIdentityFile)
 		glog.V(3).Infof("config content: %s", string(content))
 		return err
@@ -189,7 +189,7 @@ func (iam *IdentityAccessManagement) loadS3ApiConfiguration(config *iam_pb.S3Api
 	foundAccountAnonymous := false
 
 	for _, account := range config.Accounts {
-		glog.V(3).Infof("loading account  name=%s, id=", account.DisplayName, account.Id)
+		glog.V(3).Infof("loading account  name=%s, id=%s", account.DisplayName, account.Id)
 		switch account.Id {
 		case AccountAdmin.Id:
 			AccountAdmin = Account{

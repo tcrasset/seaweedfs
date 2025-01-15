@@ -226,12 +226,16 @@ func (iama *IamApiServer) PutUserPolicy(s3cfg *iam_pb.S3ApiConfiguration, values
 	userName := values.Get("UserName")
 	policyName := values.Get("PolicyName")
 	policyDocumentString := values.Get("PolicyDocument")
+	// Log the input parameters
+	glog.V(3).Infof("PutUserPolicy: userName=%s, policyName=%s, policyDocument=%s", userName, policyName, policyDocumentString)
 	policyDocument, err := GetPolicyDocument(&policyDocumentString)
 	if err != nil {
 		return PutUserPolicyResponse{}, err
 	}
 	policyDocuments[policyName] = &policyDocument
 	actions := GetActions(&policyDocument)
+	// Log the actions
+	glog.V(3).Infof("PutUserPolicy: actions=%v", actions)
 	for _, ident := range s3cfg.Identities {
 		if userName != ident.Name {
 			continue
@@ -309,30 +313,38 @@ func (iama *IamApiServer) DeleteUserPolicy(s3cfg *iam_pb.S3ApiConfiguration, val
 
 func GetActions(policy *PolicyDocument) (actions []string) {
 	for _, statement := range policy.Statement {
+		glog.V(3).Infof("parsing statement: %+v", statement)
 		if statement.Effect != "Allow" {
 			continue
 		}
 		for _, resource := range statement.Resource {
+			glog.V(3).Infof("parsing resource: %s", resource)
 			// Parse "arn:aws:s3:::my-bucket/shared/*"
 			res := strings.Split(resource, ":")
+			glog.V(3).Infof("parsed resource: %v", res)
 			if len(res) != 6 || res[0] != "arn" || res[1] != "aws" || res[2] != "s3" {
 				glog.Infof("not match resource: %s", res)
 				continue
 			}
 			for _, action := range statement.Action {
+				glog.V(3).Infof("parsing action: %s", action)
 				// Parse "s3:Get*"
 				act := strings.Split(action, ":")
+				glog.V(3).Infof("parsed action: %v", act)
 				if len(act) != 2 || act[0] != "s3" {
 					glog.Infof("not match action: %s", act)
 					continue
 				}
 				statementAction := MapToStatementAction(act[1])
+				glog.V(3).Infof("parsed statementAction: %s", statementAction)
 				if res[5] == "*" {
 					actions = append(actions, statementAction)
 					continue
 				}
 				// Parse my-bucket/shared/*
 				path := strings.Split(res[5], "/")
+				glog.V(3).Infof("parsed path: %v", path)
+				glog.V(3).Infof("len(path): %d", len(path))
 				if len(path) != 2 || path[1] != "*" {
 					glog.Infof("not match bucket: %s", path)
 					continue
