@@ -36,11 +36,22 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/seaweedfs/seaweedfs/weed/glog"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3err"
 )
 
 func (iam *IdentityAccessManagement) reqSignatureV4Verify(r *http.Request) (*Identity, s3err.ErrorCode) {
+	glog.V(3).Infof("reqSignatureV4Verify %v+", r)
 	sha256sum := getContentSha256Cksum(r)
+	glog.V(3).Infof("sha256sum %s", sha256sum)
+	glog.V(3).Infof("reqSignatureV4Verify %s", r.URL.Path)
+	prefix := s3_constants.GetPrefix(r)
+	glog.V(3).Infof("prefix %s", prefix)
+
+	glog.V(3).Infof("headers auth %s", r.Header.Get("Authorization"))
+	glog.V(3).Infof("headers %s", r.Header)
+	glog.V(3).Infof("isRequestSignatureV4(r) %v", isRequestSignatureV4(r))
 	switch {
 	case isRequestSignatureV4(r):
 		return iam.doesSignatureMatch(sha256sum, r)
@@ -105,12 +116,16 @@ func (iam *IdentityAccessManagement) doesSignatureMatch(hashedPayload string, r 
 
 	// Parse signature version '4' header.
 	signV4Values, err := parseSignV4(v4Auth)
+	glog.V(3).Infof("parseSignV4(v4Auth) %v", signV4Values)
+
 	if err != s3err.ErrNone {
 		return nil, err
 	}
 
 	// Extract all the signed headers along with its values.
 	extractedSignedHeaders, errCode := extractSignedHeaders(signV4Values.SignedHeaders, r)
+	glog.V(3).Infof("extractedSignedHeaders %v", extractedSignedHeaders)
+
 	if errCode != s3err.ErrNone {
 		return nil, errCode
 	}
@@ -148,6 +163,8 @@ func (iam *IdentityAccessManagement) doesSignatureMatch(hashedPayload string, r 
 		}
 	}
 
+	glog.V(3).Infof("hashedPayload %v", hashedPayload)
+
 	if forwardedPrefix := r.Header.Get("X-Forwarded-Prefix"); forwardedPrefix != "" {
 		// Handling usage of reverse proxy at prefix.
 		// Trying with prefix before main path.
@@ -177,6 +194,8 @@ func (iam *IdentityAccessManagement) genAndCompareSignatureV4(canonicalRequest, 
 	// Get string to sign from canonical request.
 	stringToSign := getStringToSign(canonicalRequest, t, signV4Values.Credential.getScope())
 
+	glog.V(3).Infof("stringToSign %v", stringToSign)
+
 	// Calculate signature.
 	newSignature := iam.getSignature(
 		secretKey,
@@ -185,6 +204,9 @@ func (iam *IdentityAccessManagement) genAndCompareSignatureV4(canonicalRequest, 
 		signV4Values.Credential.scope.service,
 		stringToSign,
 	)
+
+	glog.V(3).Infof("newSignature %v", newSignature)
+	glog.V(3).Infof("signV4Values.Signature %v", signV4Values.Signature)
 
 	// Verify if signature match.
 	if !compareSignatureV4(newSignature, signV4Values.Signature) {
@@ -290,6 +312,7 @@ func parseCredentialHeader(credElement string) (ch credentialHeader, aec s3err.E
 	}
 	var e error
 	cred.scope.date, e = time.Parse(yyyymmdd, credElements[1])
+
 	if e != nil {
 		return ch, s3err.ErrMalformedCredentialDate
 	}

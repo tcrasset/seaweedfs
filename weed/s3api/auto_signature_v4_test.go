@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/seaweedfs/seaweedfs/weed/pb/iam_pb"
-	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 	"io"
 	"net/http"
 	"net/url"
@@ -20,6 +18,9 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/seaweedfs/seaweedfs/weed/pb/iam_pb"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3err"
 )
@@ -99,7 +100,7 @@ func TestIsReqAuthenticated(t *testing.T) {
 	}
 }
 
-func TestCheckaAnonymousRequestAuthType(t *testing.T) {
+func TestCheckAnonymousRequestAuthType(t *testing.T) {
 	iam := &IdentityAccessManagement{
 		hashes:       make(map[string]*sync.Pool),
 		hashCounters: make(map[string]*int32),
@@ -117,7 +118,7 @@ func TestCheckaAnonymousRequestAuthType(t *testing.T) {
 		ErrCode s3err.ErrorCode
 		Action  Action
 	}{
-		{Request: mustNewRequest(http.MethodGet, "http://127.0.0.1:9000/bucket", 0, nil, t), ErrCode: s3err.ErrNone, Action: s3_constants.ACTION_READ},
+		{Request: mustNewRequest(http.MethodGet, "http://127.0.01:9000/bucke.t", 0, nil, t), ErrCode: s3err.ErrNone, Action: s3_constants.ACTION_READ},
 		{Request: mustNewRequest(http.MethodPut, "http://127.0.0.1:9000/bucket", 0, nil, t), ErrCode: s3err.ErrAccessDenied, Action: s3_constants.ACTION_WRITE},
 	}
 	for i, testCase := range testCases {
@@ -156,8 +157,41 @@ func TestCheckAdminRequestAuthType(t *testing.T) {
 		ErrCode s3err.ErrorCode
 	}{
 		{Request: mustNewRequest(http.MethodGet, "http://127.0.0.1:9000", 0, nil, t), ErrCode: s3err.ErrAccessDenied},
+		{Request: mustNewNewRequest(t), ErrCode: s3err.ErrSignatureDoesNotMatch},
 		{Request: mustNewSignedRequest(http.MethodGet, "http://127.0.0.1:9000", 0, nil, t), ErrCode: s3err.ErrNone},
 		{Request: mustNewPresignedRequest(iam, http.MethodGet, "http://127.0.0.1:9000", 0, nil, t), ErrCode: s3err.ErrNone},
+	}
+	for i, testCase := range testCases {
+		if _, s3Error := iam.reqSignatureV4Verify(testCase.Request); s3Error != testCase.ErrCode {
+			t.Errorf("Test %d: Unexpected s3error returned wanted %d, got %d", i, testCase.ErrCode, s3Error)
+		}
+	}
+}
+
+func TestCheckPowerUserRequestAuthType(t *testing.T) {
+	iam := &IdentityAccessManagement{
+		hashes:       make(map[string]*sync.Pool),
+		hashCounters: make(map[string]*int32),
+	}
+	_ = iam.loadS3ApiConfiguration(&iam_pb.S3ApiConfiguration{
+		Identities: []*iam_pb.Identity{
+			{
+				Name: "poweruasdasdser",
+				Credentials: []*iam_pb.Credential{
+					{
+						AccessKey: "power_user_key",
+						SecretKey: "power_user_secret",
+					},
+				},
+				Actions: []string{"Admin"},
+			},
+		},
+	})
+	testCases := []struct {
+		Request *http.Request
+		ErrCode s3err.ErrorCode
+	}{
+		{Request: mustNewNewRequest(t), ErrCode: s3err.ErrSignatureDoesNotMatch},
 	}
 	for i, testCase := range testCases {
 		if _, s3Error := iam.reqSignatureV4Verify(testCase.Request); s3Error != testCase.ErrCode {
@@ -183,6 +217,15 @@ func BenchmarkGetSignature(b *testing.B) {
 // Provides a fully populated http request instance, fails otherwise.
 func mustNewRequest(method string, urlStr string, contentLength int64, body io.ReadSeeker, t *testing.T) *http.Request {
 	req, err := newTestRequest(method, urlStr, contentLength, body)
+	if err != nil {
+		t.Fatalf("Unable to initialize new http request %s", err)
+	}
+	return req
+}
+
+// Provides a fully populated http request instance, fails otherwise.
+func mustNewNewRequest(t *testing.T) *http.Request {
+	req, err := NewNewTestRequest()
 	if err != nil {
 		t.Fatalf("Unable to initialize new http request %s", err)
 	}
@@ -248,6 +291,32 @@ func newTestRequest(method, urlStr string, contentLength int64, body io.ReadSeek
 
 	// Add Content-Length
 	req.ContentLength = contentLength
+
+	return req, nil
+}
+
+func NewNewTestRequest() (*http.Request, error) {
+	urlStr := "http://localhost:8333/example-bucket/528fa5e7-0959-4c8d-957f-0a10f363788c/5a683e69-494e-4454-ba36-9683d338cf35/input/iris.csv"
+	method := http.MethodHead
+	body := bytes.NewReader([]byte(""))
+
+	req, err := http.NewRequest(method, urlStr, body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Amz-Sdk-Invocation-Id", "C17FC01E-9CDC-4D32-A4BC-00F9D080AE46")
+	req.Header.Set("Amz-Sdk-Request", "attempt=1")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=power_user_key/20250124/eu-west-3/s3/aws4_request, SignedHeaders=amz-sdk-invocation-id;amz-sdk-request;content-type;host;x-amz-api-version;x-amz-content-sha256;x-amz-date, Signature=91ef46c120b90086913d58b94d7615a08732b13191e613c37a4275d807f48a40")
+	req.Header.Set("Content-Type", "application/xml")
+	req.Header.Set("User-Agent", "aws-sdk-cpp/1.11.285 ua/2.0 md/aws-crt#0.26.4 os/Linux/6.8.0-51-generic md/arch#x86_64 lang/c++#C++11 md/GCC#12.2.1 cfg/retry-mode#custom api/S3")
+	req.Header.Set("X-Amz-Api-Version", "2006-03-01")
+	req.Header.Set("X-Amz-Content-Sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+	req.Header.Set("X-Amz-Date", "20250124T132849Z")
+
+	req.Host = "localhost:8333"
+	req.RemoteAddr = "172.20.0.1:45082"
 
 	return req, nil
 }

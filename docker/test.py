@@ -8,8 +8,6 @@
 
 import argparse
 import json
-import random
-import string
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -131,9 +129,8 @@ def main():
     )
     args = parser.parse_args()
 
-    bucket_name = (
-        f"test-bucket-{''.join(random.choices(string.digits + 'abcdef', k=8))}"
-    )
+    bucket_name = "test-bucket-833b71b4"
+
     sentinel_file = "/tmp/SENTINEL"
     with open(sentinel_file, "w") as f:
         f.write("Hello World")
@@ -144,7 +141,7 @@ def main():
     admin_s3_client = get_s3_client(args, power_user_key, power_user_secret)
     iam_client = get_iam_client(args, power_user_key, power_user_secret)
 
-    create_bucket(admin_s3_client, bucket_name)
+    # create_bucket(admin_s3_client, bucket_name)
     upload_file(admin_s3_client, bucket_name, "Alice", sentinel_file)
     upload_file(admin_s3_client, bucket_name, "Bob", sentinel_file)
     list_files(admin_s3_client, bucket_name)
@@ -170,9 +167,9 @@ def main():
         get_user_dir(bucket_name, "Bob", with_bucket=False),
     )
 
-    # Create read policy for Alice and Bob
-    create_policy_for_user(iam_client, "Alice", bucket_name)
-    create_policy_for_user(iam_client, "Bob", bucket_name)
+    # # Create read policy for Alice and Bob
+    # create_policy_for_user(iam_client, "Alice", bucket_name)
+    # create_policy_for_user(iam_client, "Bob", bucket_name)
 
     alice_s3_client = get_s3_client(args, alice_key, alice_secret)
 
@@ -191,9 +188,9 @@ def main():
         get_user_dir(bucket_name, "Bob", with_bucket=False) + "/",
     )
 
-    # Update policy to include write
-    create_policy_for_user(iam_client, "Alice", bucket_name, actions=[Actions.Put, Actions.Get, Actions.List])  # fmt: off
-    create_policy_for_user(iam_client, "Bob", bucket_name, actions=[Actions.Put, Actions.Get, Actions.List])  # fmt: off
+    # # Update policy to include write
+    # create_policy_for_user(iam_client, "Alice", bucket_name, actions=[Actions.Put, Actions.Get, Actions.List])  # fmt: off
+    # create_policy_for_user(iam_client, "Bob", bucket_name, actions=[Actions.Put, Actions.Get, Actions.List])  # fmt: off
 
     print("############################# Make sure Alice can write her files")
     upload_file(
