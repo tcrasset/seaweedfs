@@ -366,6 +366,9 @@ func (iam *IdentityAccessManagement) authRequest(r *http.Request, action Action)
 		glog.V(3).Infof("post policy auth type")
 		r.Header.Set(s3_constants.AmzAuthType, "PostPolicy")
 		return identity, s3err.ErrNone
+	case authTypeStreamingUnsigned:
+		glog.V(3).Infof("unsigned streaming upload")
+		return identity, s3err.ErrNone
 	case authTypeJWT:
 		glog.V(3).Infof("jwt auth type")
 		r.Header.Set(s3_constants.AmzAuthType, "Jwt")
@@ -414,6 +417,10 @@ func (iam *IdentityAccessManagement) authUser(r *http.Request) (*Identity, s3err
 	var authType string
 	switch getRequestAuthType(r) {
 	case authTypeStreamingSigned:
+		glog.V(3).Infof("signed streaming upload")
+		return identity, s3err.ErrNone
+	case authTypeStreamingUnsigned:
+		glog.V(3).Infof("unsigned streaming upload")
 		return identity, s3err.ErrNone
 	case authTypeUnknown:
 		glog.V(3).Infof("unknown auth type")
