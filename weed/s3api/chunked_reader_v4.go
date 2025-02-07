@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/seaweedfs/seaweedfs/weed/glog"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3err"
 
@@ -41,18 +42,21 @@ import (
 // returns signature, error otherwise if the signature mismatches or any other
 // error while parsing and validating.
 func (iam *IdentityAccessManagement) calculateSeedSignature(r *http.Request) (cred *Credential, signature string, region string, date time.Time, errCode s3err.ErrorCode) {
+	glog.V(3).Infof("calculating seed signature")
 
 	// Copy request.
 	req := *r
 
 	// Save authorization header.
 	v4Auth := req.Header.Get("Authorization")
+	glog.V(3).Infof("authorization header %s", v4Auth)
 
 	// Parse signature version '4' header.
 	signV4Values, errCode := parseSignV4(v4Auth)
 	if errCode != s3err.ErrNone {
 		return nil, "", "", time.Time{}, errCode
 	}
+	glog.V(3).Infof("signv4 values %v", signV4Values)
 
 	contentSha256Header := req.Header.Get("X-Amz-Content-Sha256")
 
@@ -74,11 +78,16 @@ func (iam *IdentityAccessManagement) calculateSeedSignature(r *http.Request) (cr
 	if errCode != s3err.ErrNone {
 		return nil, "", "", time.Time{}, errCode
 	}
+
+	glog.V(3).Infof("extracted signed headers %v", extractedSignedHeaders)
+
 	// Verify if the access key id matches.
 	identity, cred, found := iam.lookupByAccessKey(signV4Values.Credential.accessKey)
 	if !found {
 		return nil, "", "", time.Time{}, s3err.ErrInvalidAccessKeyID
 	}
+
+	glog.V(3).Infof("extracted identity %v and credentials %v", identity, cred)
 
 	bucket, object := s3_constants.GetBucketAndObject(r)
 	if !identity.canDo(s3_constants.ACTION_WRITE, bucket, object) {
@@ -109,8 +118,12 @@ func (iam *IdentityAccessManagement) calculateSeedSignature(r *http.Request) (cr
 	// Get canonical request.
 	canonicalRequest := getCanonicalRequest(extractedSignedHeaders, payload, queryStr, req.URL.Path, req.Method)
 
+	glog.V(3).Infof("canonical request %s", canonicalRequest)
+
 	// Get string to sign from canonical request.
 	stringToSign := getStringToSign(canonicalRequest, date, signV4Values.Credential.getScope())
+
+	glog.V(3).Infof("string to sign %s", stringToSign)
 
 	// Calculate signature.
 	newSignature := iam.getSignature(
@@ -120,6 +133,9 @@ func (iam *IdentityAccessManagement) calculateSeedSignature(r *http.Request) (cr
 		"s3",
 		stringToSign,
 	)
+
+	glog.V(3).Infof("computed signature %s", newSignature)
+	glog.V(3).Infof("incoming signature %s", signV4Values.Signature)
 
 	// Verify if signature match.
 	if !compareSignatureV4(newSignature, signV4Values.Signature) {
@@ -142,6 +158,7 @@ var errMalformedEncoding = errors.New("malformed chunked encoding")
 // out of HTTP "chunked" format before returning it.
 // The s3ChunkedReader returns io.EOF when the final 0-length chunk is read.
 func (iam *IdentityAccessManagement) newSignV4ChunkedReader(req *http.Request) (io.ReadCloser, s3err.ErrorCode) {
+	glog.V(3).Infof("creating a new newSignV4ChunkedReader")
 	ident, seedSignature, region, seedDate, errCode := iam.calculateSeedSignature(req)
 	if errCode != s3err.ErrNone {
 		return nil, errCode
@@ -231,6 +248,7 @@ func (cr *s3ChunkedReader) Close() (err error) {
 // the incoming AWS Signature V4 streaming signature.
 func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 	for {
+		glog.V(3).Infof("At chunkReader, current state %s", cr.state)
 		switch cr.state {
 		case readChunkHeader:
 			cr.readS3ChunkHeader()
@@ -334,7 +352,11 @@ func (cr *s3ChunkedReader) getChunkSignature(hashedChunk string) string {
 // returns malformed encoding if it doesn't.
 func readCRLF(reader io.Reader) error {
 	buf := make([]byte, 2)
+	glog.V(3).Infof("reading CRLF")
+
 	_, err := io.ReadFull(reader, buf[:2])
+	glog.V(3).Infof("read the whole content: '%s'", buf)
+	glog.V(3).Infof("error: %v", err)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,28 @@
+PUT /tmp/avatar/shared_files/69d2d994-af21-471e-95d1-e9ba2f3ecde5/input/file2.txt HTTP/1.1
+Host: storage-scaleway.octopize.app
+User-Agent: aiobotocore/2.19.0 md/Botocore#1.36.3 ua/2.0 os/linux#6.8.0-51-generic md/arch#x86_64 lang/python#3.12.7 md/pyimpl#CPython cfg/retry-mode#legacy botocore/1.36.3
+Expect: 100-continue
+Content-Encoding: aws-chunked
+X-Amz-Trailer: x-amz-checksum-crc32
+X-Amz-Decoded-Content-Length: 4
+x-amz-sdk-checksum-algorithm: CRC32
+X-Amz-Date: 20250207T142053Z
+X-Amz-Content-SHA256: STREAMING-UNSIGNED-PAYLOAD-TRAILER
+Authorization: AWS4-HMAC-SHA256 Credential=5JP0QRRKADPXG08Q0FJU2/20250207/us-west-1/s3/aws4_request, SignedHeaders=content-encoding;host;transfer-encoding;x-amz-content-sha256;x-amz-date;x-amz-decoded-content-length;x-amz-sdk-checksum-algorithm;x-amz-trailer, Signature=9ad8e84a4740ea0ce36db19fef0130f84cd826a0d4719bf66010f5978777f240
+amz-sdk-invocation-id: 8f4acbf0-217a-4570-9761-85aeb8258760
+amz-sdk-request: attempt=1
+Accept-Encoding: identity
+Accept: */*
+Transfer-Encoding: chunked
+
+9
+4
+aaaa
+
+24
+0
+x-amz-checksum-crc32:rZjlRQ==
+
+
+0
+

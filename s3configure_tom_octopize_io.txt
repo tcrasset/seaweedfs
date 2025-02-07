@@ -1,0 +1,1 @@
+s3.configure -apply -user tom@octopize.io -access_key 5JP0QRRKADPXG08Q0FJU2 -secret_key FquS/JZswOl3bqaY0v3RxCNCGDaMD9BvlcPvKiDwYQ -actions Read,Write,List

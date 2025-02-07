@@ -347,7 +347,6 @@ func (iam *IdentityAccessManagement) authRequest(r *http.Request, action Action)
 	var s3Err s3err.ErrorCode
 	var found bool
 	var authType string
-	glog.V(3).Infof("unknown auth type")
 
 	switch getRequestAuthType(r) {
 	case authTypeUnknown:
