@@ -2,6 +2,7 @@ package s3api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,7 +100,7 @@ func TestNewSignV4ChunkedReaderstreamingAws4HmacSha256Payload(t *testing.T) {
 	iam.accessKeyIdent[defaultAccessKeyId] = iam.identities[0]
 
 	// Call newSignV4ChunkedReader
-	reader, errCode := iam.newSignV4ChunkedReader(req)
+	reader, errCode := iam.newChunkedReader(req)
 	assert.NotNil(t, reader)
 	assert.Equal(t, s3err.ErrNone, errCode)
 
@@ -114,8 +115,6 @@ func TestNewSignV4ChunkedReaderstreamingAws4HmacSha256Payload(t *testing.T) {
 
 }
 
-
-
 func generateStreamingUnsignedPayloadTrailerPayload() string {
 	// This test will implement the following scenario:
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
@@ -123,14 +122,21 @@ func generateStreamingUnsignedPayloadTrailerPayload() string {
 	chunk1 := "2000\r\n" + strings.Repeat("a", 8192) + "\r\n"
 	chunk2 := "2000\r\n" + strings.Repeat("a", 8192) + "\r\n"
 	chunk3 := "400\r\n" + strings.Repeat("a", 1024) + "\r\n"
-
-	// ...
+	chunk4 := "0\r\n\r\n"
 
 	data := strings.Repeat("a", 17408)
-	checksum := crc32.ChecksumIEEE([]byte(data))
-	checksumStr := fmt.Sprintf("%08x", checksum)
-	trailer := "0\r\nx-amz-checksum-crc32:" + checksumStr + "\n\r\n\r\n\r\n"
-	payload := chunk1 + chunk2 + chunk3 + trailer
+	writer := crc32.NewIEEE()
+	_, err := writer.Write([]byte(data))
+
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+	checksum := writer.Sum(nil)
+	base64EncodedChecksum := base64.StdEncoding.EncodeToString(checksum)
+	trailer := "x-amz-checksum-crc32:" + base64EncodedChecksum + "\n\r\n\r\n\r\n"
+	fmt.Println("Trailer:", trailer)
+
+	payload := chunk1 + chunk2 + chunk3 + chunk4 + trailer
 	return payload
 }
 
@@ -194,7 +200,7 @@ func TestNewSignV4ChunkedReaderStreamingUnsignedPayloadTrailer(t *testing.T) {
 	iam.accessKeyIdent[defaultAccessKeyId] = iam.identities[0]
 
 	// Call newSignV4ChunkedReader
-	reader, errCode := iam.newSignV4ChunkedReader(req)
+	reader, errCode := iam.newChunkedReader(req)
 	assert.NotNil(t, reader)
 	assert.Equal(t, s3err.ErrNone, errCode)
 

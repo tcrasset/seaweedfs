@@ -158,14 +158,29 @@ var errLineTooLong = errors.New("header line too long")
 // Malformed encoding is generated when chunk header is wrongly formed.
 var errMalformedEncoding = errors.New("malformed chunked encoding")
 
-// newSignV4ChunkedReader returns a new s3ChunkedReader that translates the data read from r
+// newChunkedReader returns a new s3ChunkedReader that translates the data read from r
 // out of HTTP "chunked" format before returning it.
 // The s3ChunkedReader returns io.EOF when the final 0-length chunk is read.
-func (iam *IdentityAccessManagement) newSignV4ChunkedReader(req *http.Request) (io.ReadCloser, s3err.ErrorCode) {
+func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.ReadCloser, s3err.ErrorCode) {
 	glog.V(3).Infof("creating a new newSignV4ChunkedReader")
-	ident, seedSignature, region, seedDate, errCode := iam.calculateSeedSignature(req)
-	if errCode != s3err.ErrNone {
-		return nil, errCode
+
+	contentSha256Header := req.Header.Get("X-Amz-Content-Sha256")
+
+	var ident *Credential
+	var seedSignature, region string
+	var seedDate time.Time
+	var errCode s3err.ErrorCode
+
+	switch contentSha256Header {
+	// Payload for STREAMING signature should be 'STREAMING-AWS4-HMAC-SHA256-PAYLOAD'
+	case streamingContentSHA256:
+		glog.V(3).Infof("streaming content sha256")
+		ident, seedSignature, region, seedDate, errCode = iam.calculateSeedSignature(req)
+		if errCode != s3err.ErrNone {
+			return nil, errCode
+		}
+	case streamingUnsignedPayload:
+		glog.V(3).Infof("streaming unsigned payload")
 	}
 
 	// Get the checksum algorithm from the x-amz-trailer: x-amz-checksum-crc32
@@ -363,6 +378,14 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 				return 0, cr.err
 			}
 
+			// TODO: Extract signature from trailer chunk and verify it.
+			// For now, we just read the trailer chunk and discard it.
+
+			// Reading remaining CRLF.
+			for i := 0; i < 2; i++ {
+				cr.err = readCRLF(cr.reader)
+			}
+
 			cr.state = eofChunk
 
 		case readChunk:
@@ -535,15 +558,21 @@ func parseChunkChecksum(b *bufio.Reader) (ChecksumAlgorithm, []byte) {
 	// \r\n                                           // CRLF
 	//
 
-	// x-amz-checksum-crc32:YABb/g==
+	// x-amz-checksum-crc32:YABb/g==\n
 	bytesRead, err := readChunkLine(b)
 	if err != nil {
 		return ChecksumAlgorithmNone, nil
 	}
+
 	// Split on ':'
 	parts := bytes.SplitN(bytesRead, []byte(":"), 2)
 	checksumKey := string(parts[0])
 	checksumValue := parts[1]
+
+	// Discard the last '\n' if present
+	if len(checksumValue) > 0 && checksumValue[len(checksumValue)-1] == '\n' {
+		checksumValue = checksumValue[:len(checksumValue)-1]
+	}
 
 	// If the checksum key is not a supported checksum algorithm, return an error.
 	// TODO: Bubble that error to the caller
@@ -553,7 +582,6 @@ func parseChunkChecksum(b *bufio.Reader) (ChecksumAlgorithm, []byte) {
 	}
 
 	return extractedAlgorithm, checksumValue
-
 }
 
 // parseChunkSignature - parse chunk signature.
