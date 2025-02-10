@@ -26,6 +26,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"hash"
 	"hash/crc32"
 	"hash/crc64"
@@ -158,6 +159,20 @@ var errLineTooLong = errors.New("header line too long")
 // Malformed encoding is generated when chunk header is wrongly formed.
 var errMalformedEncoding = errors.New("malformed chunked encoding")
 
+type printlnWriter struct{}
+
+func (w printlnWriter) Write(p []byte) (n int, err error) {
+	fmt.Print(string(p))
+	return len(p), nil
+}
+
+type glogWriter struct{}
+
+func (glogWriter) Write(p []byte) (n int, err error) {
+	glog.V(3).Infof(string(p))
+	return len(p), nil
+}
+
 // newChunkedReader returns a new s3ChunkedReader that translates the data read from r
 // out of HTTP "chunked" format before returning it.
 // The s3ChunkedReader returns io.EOF when the final 0-length chunk is read.
@@ -165,6 +180,7 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 	glog.V(3).Infof("creating a new newSignV4ChunkedReader")
 
 	contentSha256Header := req.Header.Get("X-Amz-Content-Sha256")
+	authorizationHeader := req.Header.Get("Authorization")
 
 	var ident *Credential
 	var seedSignature, region string
@@ -181,6 +197,14 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 		}
 	case streamingUnsignedPayload:
 		glog.V(3).Infof("streaming unsigned payload")
+		if authorizationHeader != "" {
+			// We do not need to pass the seed signature to the Reader as each chunk is not signed,
+			// but we do compute it to verify the caller has the correct permissions.
+			_, _, _, _, errCode = iam.calculateSeedSignature(req)
+			if errCode != s3err.ErrNone {
+				return nil, errCode
+			}
+		}
 	}
 
 	// Get the checksum algorithm from the x-amz-trailer: x-amz-checksum-crc32
@@ -194,7 +218,7 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 
 	checkSumWriter := getCheckSumWriter(checksumAlgorithm)
 
-	return &s3ChunkedReader{
+	tmpChunkReader := &s3ChunkedReader{
 		cred:              ident,
 		reader:            bufio.NewReader(req.Body),
 		seedSignature:     seedSignature,
@@ -205,7 +229,11 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 		checkSumWriter:    checkSumWriter,
 		state:             readChunkHeader,
 		iam:               iam,
-	}, s3err.ErrNone
+	}
+
+	chunkReader := io.TeeReader(tmpChunkReader, io.MultiWriter(printlnWriter{}, glogWriter{}))
+	stringReadCloser := io.NopCloser(chunkReader)
+	return stringReadCloser, s3err.ErrNone
 }
 
 func extractChecksumAlgorithm(amzTrailerHeader string) (ChecksumAlgorithm, error) {
@@ -366,6 +394,7 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 			extractedCheckSumAlgorithm, extractedChecksum := parseChunkChecksum(cr.reader)
 
 			if extractedCheckSumAlgorithm.String() != cr.checkSumAlgorithm {
+				glog.V(3).Infof("checksum algorithm  in trailer '%s' does not match the one advertised in the header '%s'", extractedCheckSumAlgorithm.String(), cr.checkSumAlgorithm)
 				cr.err = errors.New("checksum algorithm in trailer does not match the one advertised in the header")
 				return 0, cr.err
 			}
@@ -374,6 +403,7 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 			base64Checksum := base64.StdEncoding.EncodeToString(computedChecksum)
 			if string(extractedChecksum) != base64Checksum {
 				// TODO: Return BadDigest
+				glog.V(3).Infof("payload checksum '%s' does not match provided checksum '%s'", base64Checksum, string(extractedChecksum))
 				cr.err = errors.New("payload checksum does not match")
 				return 0, cr.err
 			}
@@ -565,17 +595,16 @@ func parseChunkChecksum(b *bufio.Reader) (ChecksumAlgorithm, []byte) {
 	}
 
 	// Split on ':'
+	glog.V(3).Infof("checksum trailer: %s", string(bytesRead))
 	parts := bytes.SplitN(bytesRead, []byte(":"), 2)
 	checksumKey := string(parts[0])
 	checksumValue := parts[1]
 
-	// Discard the last '\n' if present
-	if len(checksumValue) > 0 && checksumValue[len(checksumValue)-1] == '\n' {
-		checksumValue = checksumValue[:len(checksumValue)-1]
-	}
+	// Discard all trailing whitespace characters
+	checksumValue = trimTrailingWhitespace(checksumValue)
 
 	// If the checksum key is not a supported checksum algorithm, return an error.
-	// TODO: Bubble that error to the caller
+	// TODO: Bubble that error up to the caller
 	extractedAlgorithm, err := extractChecksumAlgorithm(checksumKey)
 	if err != nil {
 		return ChecksumAlgorithmNone, nil

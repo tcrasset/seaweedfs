@@ -122,6 +122,10 @@ func generateStreamingUnsignedPayloadTrailerPayload() string {
 	chunk1 := "2000\r\n" + strings.Repeat("a", 8192) + "\r\n"
 	chunk2 := "2000\r\n" + strings.Repeat("a", 8192) + "\r\n"
 	chunk3 := "400\r\n" + strings.Repeat("a", 1024) + "\r\n"
+
+	// FIXME: 	The "right" structure of the last chunk as provided by the examples in the
+	// 			AWS documentation is "0\r\n" instead of "0\r\n\r\n", but to make this test pass and not
+	//			fail on errMalformedEncoding, we need to add the extra "\r\n" at the end of the last chunk.
 	chunk4 := "0\r\n\r\n"
 
 	data := strings.Repeat("a", 17408)
