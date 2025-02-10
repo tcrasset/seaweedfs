@@ -32,7 +32,8 @@ func generatestreamingAws4HmacSha256Payload() string {
 		strings.Repeat("a", 65536) + "\r\n"
 	chunk2 := "400;chunk-signature=0055627c9e194cb4542bae2aa5492e3c1575bbb81b612b7d234b86a503ef5497\r\n" +
 		strings.Repeat("a", 1024) + "\r\n"
-	chunk3 := "0;chunk-signature=b6c6ea8a5354eaf15b3cb7646744f4275b71ea724fed81ceb9323e279d449df9\r\n\r\n"
+	chunk3 := "0;chunk-signature=b6c6ea8a5354eaf15b3cb7646744f4275b71ea724fed81ceb9323e279d449df9\r\n" +
+		"\r\n" // The last chunk is empty
 
 	payload := chunk1 + chunk2 + chunk3
 	return payload
@@ -67,55 +68,15 @@ func TestNewSignV4ChunkedReaderstreamingAws4HmacSha256Payload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
-
-	// Create an IdentityAccessManagement instance
-	iam := IdentityAccessManagement{
-		identities:        []*Identity{},
-		accessKeyIdent:    map[string]*Identity{},
-		accounts:          map[string]*Account{},
-		emailAccount:      map[string]*Account{},
-		hashes:            map[string]*sync.Pool{},
-		hashCounters:      map[string]*int32{},
-		identityAnonymous: nil,
-		domain:            "",
-		isAuthEnabled:     false,
-	}
-
-	// Add default access keys and secrets
-	iam.identities = append(iam.identities, &Identity{
-		Name: "default",
-		Credentials: []*Credential{
-			{
-				AccessKey: defaultAccessKeyId,
-				SecretKey: defaultSecretAccessKey,
-			},
-		},
-		Actions: []Action{
-			"Read",
-			"Write",
-			"List",
-		},
-	})
-
-	iam.accessKeyIdent[defaultAccessKeyId] = iam.identities[0]
-
-	// Call newSignV4ChunkedReader
-	reader, errCode := iam.newChunkedReader(req)
-	assert.NotNil(t, reader)
-	assert.Equal(t, s3err.ErrNone, errCode)
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("Failed to read data: %v", err)
-	}
+	iam := setupIam()
 
 	// The expected payload a long string of 'a's
 	expectedPayload := strings.Repeat("a", 66560)
-	assert.Equal(t, expectedPayload, string(data))
 
+	runWithRequest(iam, req, t, expectedPayload)
 }
 
-func generateStreamingUnsignedPayloadTrailerPayload() string {
+func generateStreamingUnsignedPayloadTrailerPayload(includeFinalCRLF bool) string {
 	// This test will implement the following scenario:
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
 
@@ -123,10 +84,12 @@ func generateStreamingUnsignedPayloadTrailerPayload() string {
 	chunk2 := "2000\r\n" + strings.Repeat("a", 8192) + "\r\n"
 	chunk3 := "400\r\n" + strings.Repeat("a", 1024) + "\r\n"
 
-	// FIXME: 	The "right" structure of the last chunk as provided by the examples in the
-	// 			AWS documentation is "0\r\n" instead of "0\r\n\r\n", but to make this test pass and not
-	//			fail on errMalformedEncoding, we need to add the extra "\r\n" at the end of the last chunk.
-	chunk4 := "0\r\n\r\n"
+	chunk4 := "0\r\n" /* the last chunk is empty */
+
+	if includeFinalCRLF {
+		// Some clients omit the final CRLF, so we need to test that case as well
+		chunk4 += "\r\n"
+	}
 
 	data := strings.Repeat("a", 17408)
 	writer := crc32.NewIEEE()
@@ -144,11 +107,11 @@ func generateStreamingUnsignedPayloadTrailerPayload() string {
 	return payload
 }
 
-func NewRequestStreamingUnsignedPayloadTrailer() (*http.Request, error) {
+func NewRequestStreamingUnsignedPayloadTrailer(includeFinalCRLF bool) (*http.Request, error) {
 	// This test will implement the following scenario:
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
 
-	payload := generateStreamingUnsignedPayloadTrailerPayload()
+	payload := generateStreamingUnsignedPayloadTrailerPayload(includeFinalCRLF)
 	req, err := http.NewRequest("PUT", "http://amzn-s3-demo-bucket/Key+", bytes.NewReader([]byte(payload)))
 	if err != nil {
 		return nil, err
@@ -167,12 +130,41 @@ func NewRequestStreamingUnsignedPayloadTrailer() (*http.Request, error) {
 func TestNewSignV4ChunkedReaderStreamingUnsignedPayloadTrailer(t *testing.T) {
 	// This test will implement the following scenario:
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
-	req, err := NewRequestStreamingUnsignedPayloadTrailer()
+	iam := setupIam()
+
+	req, err := NewRequestStreamingUnsignedPayloadTrailer(true)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
+	// The expected payload a long string of 'a's
+	expectedPayload := strings.Repeat("a", 17408)
 
+	runWithRequest(iam, req, t, expectedPayload)
+
+	req, err = NewRequestStreamingUnsignedPayloadTrailer(false)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	runWithRequest(iam, req, t, expectedPayload)
+}
+
+func runWithRequest(iam IdentityAccessManagement, req *http.Request, t *testing.T, expectedPayload string) {
+	reader, errCode := iam.newChunkedReader(req)
+	assert.NotNil(t, reader)
+	assert.Equal(t, s3err.ErrNone, errCode)
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("Failed to read data: %v", err)
+	}
+
+	assert.Equal(t, expectedPayload, string(data))
+}
+
+func setupIam() IdentityAccessManagement {
 	// Create an IdentityAccessManagement instance
+	// Add default access keys and secrets
+
 	iam := IdentityAccessManagement{
 		identities:        []*Identity{},
 		accessKeyIdent:    map[string]*Identity{},
@@ -185,7 +177,6 @@ func TestNewSignV4ChunkedReaderStreamingUnsignedPayloadTrailer(t *testing.T) {
 		isAuthEnabled:     false,
 	}
 
-	// Add default access keys and secrets
 	iam.identities = append(iam.identities, &Identity{
 		Name: "default",
 		Credentials: []*Credential{
@@ -202,18 +193,5 @@ func TestNewSignV4ChunkedReaderStreamingUnsignedPayloadTrailer(t *testing.T) {
 	})
 
 	iam.accessKeyIdent[defaultAccessKeyId] = iam.identities[0]
-
-	// Call newSignV4ChunkedReader
-	reader, errCode := iam.newChunkedReader(req)
-	assert.NotNil(t, reader)
-	assert.Equal(t, s3err.ErrNone, errCode)
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("Failed to read data: %v", err)
-	}
-
-	// The expected payload a long string of 'a's
-	expectedPayload := strings.Repeat("a", 17408)
-	assert.Equal(t, expectedPayload, string(data))
+	return iam
 }

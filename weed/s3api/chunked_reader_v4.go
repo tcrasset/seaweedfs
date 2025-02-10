@@ -207,7 +207,7 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 		}
 	}
 
-	// Get the checksum algorithm from the x-amz-trailer: x-amz-checksum-crc32
+	// Get the checksum algorithm from the x-amz-trailer Header.
 	amzTrailerHeader := req.Header.Get("x-amz-trailer")
 	checksumAlgorithm, err := extractChecksumAlgorithm(amzTrailerHeader)
 
@@ -218,7 +218,7 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 
 	checkSumWriter := getCheckSumWriter(checksumAlgorithm)
 
-	tmpChunkReader := &s3ChunkedReader{
+	return &s3ChunkedReader{
 		cred:              ident,
 		reader:            bufio.NewReader(req.Body),
 		seedSignature:     seedSignature,
@@ -229,11 +229,7 @@ func (iam *IdentityAccessManagement) newChunkedReader(req *http.Request) (io.Rea
 		checkSumWriter:    checkSumWriter,
 		state:             readChunkHeader,
 		iam:               iam,
-	}
-
-	chunkReader := io.TeeReader(tmpChunkReader, io.MultiWriter(printlnWriter{}, glogWriter{}))
-	stringReadCloser := io.NopCloser(chunkReader)
-	return stringReadCloser, s3err.ErrNone
+	}, s3err.ErrNone
 }
 
 func extractChecksumAlgorithm(amzTrailerHeader string) (ChecksumAlgorithm, error) {
@@ -361,12 +357,30 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 			}
 			cr.state = readChunk
 		case readChunkTrailer:
-			cr.err = readCRLF(cr.reader)
-			if cr.err != nil {
+			err = peekCRLF(cr.reader)
+			isTrailingChunk := cr.n == 0 && cr.lastChunk
+
+			if !isTrailingChunk {
+				// If we're not in the trailing chunk, we should consume the bytes no matter what.
+				// The error returned by peekCRLF is the same as the one by readCRLF.
+				readCRLF(cr.reader)
+				cr.err = err
+			} else if err != nil && err != errMalformedEncoding {
+				cr.err = err
 				return 0, errMalformedEncoding
+			} else { // equivalent to isTrailingChunk && err == errMalformedEncoding
+				// FIXME: 	The "right" structure of the last chunk as provided by the examples in the
+				// 			AWS documentation is "0\r\n\r\n" instead of "0\r\n", but some s3 clients when calling with
+				// 			streaming-unsigned-payload-trailer omit the last CRLF. To avoid returning an error that, we need to accept both.
+				// We arrive here when we're at the end of the 0-byte chunk, depending on the client implementation
+				// the client may or may not send the optional CRLF after the 0-byte chunk.
+				// If the client sends the optional CRLF, we should consume it.
+				if err == nil {
+					readCRLF(cr.reader)
+				}
 			}
 
-			// If we're using unsigned streaming upload, there is not signature to verify.
+			// If we're using unsigned streaming upload, there is no signature to verify at each chunk.
 			if cr.chunkSignature != "" {
 				cr.state = verifyChunk
 			} else if cr.lastChunk {
@@ -388,14 +402,14 @@ func (cr *s3ChunkedReader) Read(buf []byte) (n int, err error) {
 			// \r\n                                           // CRLF
 			//
 			// This implementation currently only supports the first case.
-			// TODO: Implement the second case (signed upload with additional checksum algorithm)
+			// TODO: Implement the second case (signed upload with additional checksum computation for each chunk)
 
-			// Read the first chunk line until CRLF.
 			extractedCheckSumAlgorithm, extractedChecksum := parseChunkChecksum(cr.reader)
 
 			if extractedCheckSumAlgorithm.String() != cr.checkSumAlgorithm {
-				glog.V(3).Infof("checksum algorithm  in trailer '%s' does not match the one advertised in the header '%s'", extractedCheckSumAlgorithm.String(), cr.checkSumAlgorithm)
-				cr.err = errors.New("checksum algorithm in trailer does not match the one advertised in the header")
+				errorMessage := fmt.Sprintf("checksum algorithm in trailer '%s' does not match the one advertised in the header '%s'", extractedCheckSumAlgorithm.String(), cr.checkSumAlgorithm)
+				glog.V(3).Infof(errorMessage)
+				cr.err = errors.New(errorMessage)
 				return 0, cr.err
 			}
 
@@ -505,16 +519,29 @@ func (cr *s3ChunkedReader) getChunkSignature(hashedChunk string) string {
 
 // readCRLF - check if reader only has '\r\n' CRLF character.
 // returns malformed encoding if it doesn't.
-func readCRLF(reader io.Reader) error {
+func readCRLF(reader *bufio.Reader) error {
 	buf := make([]byte, 2)
-	glog.V(3).Infof("reading CRLF")
-
-	_, err := io.ReadFull(reader, buf[:2])
-	glog.V(3).Infof("read the whole content: '%s'", buf)
-	glog.V(3).Infof("error: %v", err)
+	_, err := reader.Read(buf)
 	if err != nil {
 		return err
 	}
+	return checkCRLF(buf)
+}
+
+// peekCRLF - peeks at the next two bytes to check for CRLF without consuming them.
+func peekCRLF(reader *bufio.Reader) error {
+	peeked, err := reader.Peek(2)
+	if err != nil {
+		return err
+	}
+	if err := checkCRLF(peeked); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkCRLF - checks if the buffer contains '\r\n' CRLF character.
+func checkCRLF(buf []byte) error {
 	if buf[0] != '\r' || buf[1] != '\n' {
 		return errMalformedEncoding
 	}
@@ -595,7 +622,6 @@ func parseChunkChecksum(b *bufio.Reader) (ChecksumAlgorithm, []byte) {
 	}
 
 	// Split on ':'
-	glog.V(3).Infof("checksum trailer: %s", string(bytesRead))
 	parts := bytes.SplitN(bytesRead, []byte(":"), 2)
 	checksumKey := string(parts[0])
 	checksumValue := parts[1]
