@@ -40,7 +40,7 @@ build_rocksdb:
 	docker build --no-cache -t chrislusf/seaweedfs:rocksdb -f Dockerfile.rocksdb_large .
 
 s3tests_build:
-	docker build --no-cache -t chrislusf/ceph-s3-tests:local -f Dockerfile.s3tests .
+	docker build -t chrislusf/ceph-s3-tests:local -f Dockerfile.s3tests .
 
 dev: build
 	docker compose -f compose/local-dev-compose.yml -p seaweedfs up
