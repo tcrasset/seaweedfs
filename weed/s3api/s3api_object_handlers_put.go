@@ -49,6 +49,8 @@ func (s3a *S3ApiServer) PutObjectHandler(w http.ResponseWriter, r *http.Request)
 
 	dataReader := r.Body
 	rAuthType := getRequestAuthType(r)
+	glog.V(4).Infof("rAuthType: %s", rAuthType)
+	glog.V(4).Infof("s3a.iam.isEnabled(): %s", s3a.iam.isEnabled())
 	if s3a.iam.isEnabled() {
 		var s3ErrCode s3err.ErrorCode
 		switch rAuthType {

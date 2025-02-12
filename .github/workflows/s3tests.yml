@@ -48,7 +48,7 @@ jobs:
             -volume.max=100 -volume.preStopSeconds=1 -s3.port=8000 -metricsPort=9324 \
             -s3.allowEmptyFolder=false -s3.allowDeleteBucketNotEmpty=true -s3.config=../docker/compose/s3.json &
           pid=$!
-          sleep 10          
+          sleep 10
           cd /s3-tests
           sed -i "s/assert prefixes == \['foo%2B1\/', 'foo\/', 'quux%20ab\/'\]/assert prefixes == \['foo\/', 'foo%2B1\/', 'quux%20ab\/'\]/" s3tests_boto3/functional/test_s3.py
           tox -- \
@@ -300,4 +300,13 @@ jobs:
 
       - name: Run tests
         run: |
+          cd ..
+          make install
+          $HOME/go/bin/weed -v 4 server -filer -filer.maxMB=64 -s3 -ip.bind 0.0.0.0 \
+            -master.raftHashicorp -master.electionTimeout 1s -master.volumeSizeLimitMB=1024 \
+            -volume.max=100 -volume.preStopSeconds=1 -s3.port=8333 -metricsPort=9324 \
+            -s3.allowEmptyFolder=false -s3.allowDeleteBucketNotEmpty=true -s3.config=docker/compose/s3.json &
+          pid=$!
+          sleep 20
           uv run test/s3/boto3/simple_upload.py
+          kill -9 $pid || true

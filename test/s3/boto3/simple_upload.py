@@ -1,29 +1,38 @@
 #!/usr/bin/env python3
 # /// script
 # dependencies = [
-#   "botocore>1.36",
+#   "boto3>1.36",
 # ]
+# ///
 
 
+import base64
+import importlib
+import importlib.metadata
 import os
+import tempfile
 
-import botocore
-import botocore.session
-from botocore.config import Config
+import boto3
 
 
 def main():
-    os.environ["AWS_ACCESS_KEY_ID"] = "any"
-    os.environ["AWS_SECRET_ACCESS_KEY"] = "any"
+    os.environ["AWS_ACCESS_KEY_ID"] = "power_user_key" # from docker/compose/s3.json
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "power_user_secret" # from docker/compose/s3.json
     os.environ["AWS_ENDPOINT_URL"] = "http://localhost:8333"
 
+    boto3_version = importlib.metadata.version("boto3")
+    print(f"boto3 version: {boto3_version}")
 
-    session = botocore.session.Session()
+    to_write = b"Hello World"* 1000000
+    checksum = 1
+    checksum = base64.b64encode(checksum.to_bytes(4, byteorder='big')).decode('utf-8')
 
-    client = session.create_client(
-        "s3", "us-east-1", config=Config(signature_version="s3v4")
-    )
-    client.put_object(Bucket="foo", Key="bar", Body="a"*1024)
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(to_write)
+        f.flush()
+
+        client = boto3.client("s3")
+        client.upload_file(Bucket="foo", Key="bar", Filename=f.name)
 
 
 
